@@ -1,4 +1,5 @@
 #include <iostream>
+#include <mpi.h>
 #include<SDL.h>
 #undef main
 
@@ -33,8 +34,15 @@ int count_living_neighbours(int grid[][GRID_SIZE], int size, int x, int y);
 void update_cell(int grid[][GRID_SIZE], int size, int x, int y, int num_neighbours);
 void step(int grid[][GRID_SIZE], int size);
 
-int main()
+int main([[maybe_unused]] int* argc, [[maybe_unused]] char** argv)
 {
+	// Initialize the MPI environment
+	MPI_Init(NULL, NULL);
+
+	// Get the number of processes
+	int world_size;
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
 	Uint32 ticks;
 
 	/* the grid on which the game is played */
