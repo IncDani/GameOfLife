@@ -6,13 +6,16 @@ SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
 const int SCREEN_SIZE = 800;
-const int GRID_SIZE = 20;  /* height and width of the grid in cells     */
+const int GRID_SIZE = 50;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
+
 const int LIVE_CELL = 1;
 const int DEAD_CELL = 0;
-const int REPRODUCE_NUM = 3; /* more than this and cell dies of starvation */
-const int OVERPOPULATE_NUM = 3; /* exactly this and cells reproduce           */
-const int ISOLATION_NUM = 2; /* less than this and cell dies of loneliness */
+
+const int REPRODUCE_NUM = 3;	/* exactly this and cells reproduce           */
+const int OVERPOPULATE_NUM = 3; /* more than this and cell dies of starvation */
+const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
+
 const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
 
 
@@ -109,6 +112,12 @@ void handle_events(int grid[][GRID_SIZE], int size)
 			{
 				g_animating = !g_animating;
 			}
+			else if (event.key.keysym.sym == SDLK_c)
+			{
+				/* clear the screen with c. Also stop animating */
+				init_grid(grid, size);
+				g_animating = false;
+			}
 		}
 		else if (event.type == SDL_MOUSEMOTION)
 		{
@@ -126,23 +135,9 @@ void handle_events(int grid[][GRID_SIZE], int size)
 		{
 			set_cell(grid
 				, size
-				, event.button.x / CELL_SIZE
-				, event.button.y / CELL_SIZE
-				, (event.button.button == SDL_BUTTON_LEFT) ? LIVE_CELL : DEAD_CELL);
-		}
-		else if (event.type == SDL_KEYDOWN)
-		{
-			if (event.key.keysym.sym == SDLK_SPACE)
-			{
-				/* start/stop animation with space */
-				g_animating = !g_animating;
-			}
-			else if (event.key.keysym.sym == SDLK_c)
-			{
-				/* clear the screen with c. Also stop animating */
-				init_grid(grid, size);
-				g_animating = false;
-			}
+				, event.motion.x / CELL_SIZE
+				, event.motion.y / CELL_SIZE
+				, (event.button.button == SDL_BUTTON_LMASK) ? LIVE_CELL : DEAD_CELL);
 		}
 	}
 }
@@ -221,9 +216,7 @@ int count_living_neighbours(int grid[][GRID_SIZE], int size, int x, int y)
 
 	/* our loop counts the cell at the center of the */
 	/* neighbourhood. Remove that from the count     */
-
-	if (grid[y][x] == DEAD_CELL)
-	{
+	if (grid[y][x] == LIVE_CELL) {
 		count--;
 	}
 
@@ -254,29 +247,28 @@ void display_grid(int grid[][GRID_SIZE], int size)
 	SDL_RenderClear(g_renderer);
 
 	/* Set draw colour to black */
-	SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+	SDL_SetRenderDrawColor(g_renderer, 128, 128, 128, SDL_ALPHA_OPAQUE);
 
 	/* Draw row lines */
 	for (int i = 0; i < size; i++) 
 	{
-		SDL_RenderDrawLine(g_renderer,
-
-			0, CELL_SIZE * i,          /* x1, y1 */
-			SCREEN_SIZE, CELL_SIZE * i /* x2, y2 */
+		SDL_RenderDrawLine( g_renderer
+			, 0, CELL_SIZE * i           /* x1, y1 */
+			, SCREEN_SIZE, CELL_SIZE * i /* x2, y2 */
 		);
 	}
 
 	/* Draw column lines */
 	for (int i = 0; i < size; i++) 
 	{
-		SDL_RenderDrawLine(g_renderer,
-			CELL_SIZE * i, 0,           /* x1, y1 */
-			CELL_SIZE * i, SCREEN_SIZE  /* x2, y2 */
+		SDL_RenderDrawLine(g_renderer
+			, CELL_SIZE * i, 0            /* x1, y1 */
+			, CELL_SIZE * i, SCREEN_SIZE  /* x2, y2 */
 		);
 	}
 
-	/* Set draw colour to blue */
-	SDL_SetRenderDrawColor(g_renderer, 0, 0, 255, SDL_ALPHA_OPAQUE);
+	/* Set draw colour to black */
+	SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
 
 	/* Render the game of life */
 	for (int x = 0; x < size; x++)
