@@ -1,16 +1,15 @@
 #include <iostream>
+#include <vector>
 
+#include <omp.h>
 #include<SDL.h>
 #undef main
-
-#include <mpi.h>
-#include <vector>
 
 SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
 const int SCREEN_SIZE = 800;
-const int GRID_SIZE = 10;  /* height and width of the grid in cells     */
+const int GRID_SIZE = 40;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
 
 const int LIVE_CELL = 1;
@@ -21,6 +20,8 @@ const int OVERPOPULATE_NUM = 3; /* more than this and cell dies of starvation */
 const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
 const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
+
+const int THREAD_NUM = 10;
 
 int g_user_quit = 0;
 int g_animating = 0;
@@ -37,102 +38,29 @@ void handle_events(vector<T> &grid);
 void terminate_display();
 
 template<typename T>
-void transform_elements(T* arr, const int& arr_rows, const T& val);
-
-template<typename T>
 void print_vector(const vector<T>& vect, int width);
-
-int processed_elem_count();
 
 template<typename T>
 void set_cell(vector<T>& grid, const int& x, const int& y, const T& val);
 
 template<typename T>
-int count_living_neighbours(const vector<T>& grid_slice, const vector<T>& missing_rows, const int &x, const int &y);
+int count_living_neighbours(const vector<T> &grid, const int &x, const int &y);
 
 template<typename T>
 void update_cell(vector<T>& grid, const int& x, const int& y, const int& num_neighbours);
 
 template<typename T>
-void step(vector<T>& grid_slice, const vector<T>& missing_rows);
-
-int world_size, world_rank;
-int elem_per_proc;
-
-// Used to retain positions in grid for MPI_Gatherv
-vector<int> displ_vec;
-
-// Used to retain number of elements in each process
-vector<int> elem_per_proc_vec;
+void step(vector<T> &grid);
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
 
-	// Initialize the MPI environment
-	MPI_Init(&argc, &argv);
-
-	// Get the number of processes
-	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-
-	// Get processed elements per process
-	elem_per_proc = processed_elem_count();
-
-	// Grid used for the game - allocated only in process 0
-	vector<int> grid;
-
-	// Grid slice will be either 1D or 2D based on the number of
-	// processes available
-	vector<int> grid_slice(elem_per_proc, 0);
-
-	// Buffers used to compute neigbor count
-	vector<int> missing_lower_row(GRID_SIZE);
-	vector<int> missing_upper_row(GRID_SIZE);
-	vector<int> missing_rows;
-
-	// First and last row will have only one missing row
-	(world_rank != 0 && world_rank != world_size - 1) ? 
-		missing_rows.resize(2 * GRID_SIZE) : missing_rows.resize(GRID_SIZE);
-
-	// Used to retain positions in grid for MPI_Gatherv
-	displ_vec.resize(world_size, 0);
-
-	// Used to retain number of elements in each process
-	elem_per_proc_vec.resize(world_size, 0);
-
-	// Process 0 deals with SDL graphics and initialization
-	if (world_rank == 0)
-	{
-		/* try to create a window and renderer. Kill the program if we fail */
-		 if (!initialize_display())
-		 	MPI_Abort(MPI_COMM_WORLD, -1);
-
-		// Initialize grid
-		grid.resize(GRID_SIZE * GRID_SIZE, DEAD_CELL);
-	}
-
-	MPI_Allgather(
-		&elem_per_proc, 1, MPI_INT,
-		elem_per_proc_vec.data(), 1, MPI_INT,
-		MPI_COMM_WORLD
-	);
-
-	// Compute displacement position by counting distributed 
-	// elements up to current rank
-	int displ = 0;
-	if (world_rank != 0)
-	{
-		for(int rank = 0; rank < world_rank; rank++)
-			displ += elem_per_proc_vec[rank];
-	}
-
-	// Create displacement buffer for process 0 to use MPI_Gatherv
-	MPI_Gather(
-		&displ, 1, MPI_INT,
-		displ_vec.data(), 1, MPI_INT,
-		0, MPI_COMM_WORLD
-	);
+	// Grid used for the game
+	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
+	
+	/* try to create a window and renderer. Kill the program if we fail */
+	if (!initialize_display()) return 1;
 
 	/* keep track of elapsed time so we can render the animation at a
 	 * sensible framerate */
@@ -141,118 +69,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
 	{
-		if (world_rank == 0) {
-			/* button presses, mouse movement, etc */
-			handle_events(grid);
-			/* draw the game to the screen */
-			display_grid(grid);
-		}
+		/* button presses, mouse movement, etc */
+		handle_events(grid);
 
-		// Share data from process 0 to the others
-		MPI_Bcast(&g_user_quit, 1, MPI_INT, 0, MPI_COMM_WORLD);
-		MPI_Bcast(&g_animating, 1, MPI_INT, 0, MPI_COMM_WORLD);
-		MPI_Scatterv(grid.data(), elem_per_proc_vec.data(), displ_vec.data(), MPI_INT
-			, grid_slice.data(), elem_per_proc, MPI_INT
-			, 0, MPI_COMM_WORLD);
-
-		// Send missing data between processes for neighborhood count
-
-		// Stage 1 - even send forward
-		if (world_rank % 2 == 0)
-		{
-			if (world_rank != world_size - 1)
-			{
-				// All even ranked processes send to their next neighbor last row of elements
-				// needed for computing neighbors
-				missing_lower_row.assign(grid_slice.end() - GRID_SIZE, grid_slice.end());
-				MPI_Send(missing_lower_row.data(), GRID_SIZE, MPI_INT, world_rank + 1, 0, MPI_COMM_WORLD);
-			}
-		}
-		else
-		{
-			// All odd ranked processes receive from their previous neighbor last row of elements
-			// needed for computing neighbors
-			MPI_Recv(missing_lower_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			copy_n(missing_lower_row.begin(), GRID_SIZE, missing_rows.begin());
-		}
-
-		// Stage 2 - odd send forward
-		
-		if (world_rank % 2 == 1)
-		{
-			if (world_rank != world_size - 1)
-			{
-				// All odd ranked processes send to their next neighbor last row of elements
-				// needed for computing neighbors
-				missing_lower_row.assign(grid_slice.end() - GRID_SIZE, grid_slice.end());
-				MPI_Send(missing_lower_row.data(), GRID_SIZE, MPI_INT, world_rank + 1, 1, MPI_COMM_WORLD);
-			}
-		}
-		else
-		{
-			// All even ranked processes receive from their previous neighbor last row of elements
-			// needed for computing neighbors
-			MPI_Recv(missing_lower_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			copy_n(missing_lower_row.begin(), GRID_SIZE, missing_rows.begin());
-		}
-		
-
-		// Stage 3 - even send backward
-		if (world_rank != 0)
-		{
-			if (world_rank % 2 == 0)
-			{
-				// All even ranked processes send to their next neighbor last row of elements
-				// needed for computing neighbors
-				missing_upper_row.assign(grid_slice.begin(), grid_slice.begin() + GRID_SIZE);
-				MPI_Send(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD);
-			}
-			else if (world_rank != world_size - 1)
-			{
-				// All odd ranked processes receive from their previous neighbor last row of elements
-				// needed for computing neighbors
-				MPI_Recv(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-				copy_n(missing_upper_row.begin(), GRID_SIZE, missing_rows.begin() + GRID_SIZE);
-			}
-		}
-
-		// Stage 4 - odd send backward
-		if (world_rank % 2 == 1)
-		{
-			// All even ranked processes send to their next neighbor last row of elements
-			// needed for computing neighbors
-			missing_upper_row.assign(grid_slice.begin(), grid_slice.begin() + GRID_SIZE);
-			MPI_Send(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD);
-		}
-		else if(world_rank != world_size - 1) 
-		{
-			// All odd ranked processes receive from their previous neighbor last row of elements
-			// needed for computing neighbors
-			MPI_Recv(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank + 1, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			copy_n(missing_upper_row.begin(), GRID_SIZE, missing_rows.begin() + missing_rows.size() - GRID_SIZE);
-		}
+		/* draw the game to the screen */
+		display_grid(grid);
 
 		/* advance the game if appropriate */
-		MPI_Barrier(MPI_COMM_WORLD);
 		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
-			step(grid_slice, missing_rows);
+			step(grid);
 			ticks = SDL_GetTicks();
 		}
-
-		MPI_Barrier(MPI_COMM_WORLD);
-		MPI_Gatherv(grid_slice.data(), elem_per_proc, MPI_INT
-			, grid.data(), elem_per_proc_vec.data(), displ_vec.data(), MPI_INT
-			, 0, MPI_COMM_WORLD);
 	}
 
 	 /* clean up when we're done */
-	if (world_rank == 0)
-	{
-		terminate_display();
-	}
+	terminate_display();
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	MPI_Finalize();
 	return 0;
 }
 
@@ -288,20 +120,6 @@ void print_vector(const vector<T> &vect, int width)
 		cout << elem;
 		(++idx % width == 0) ? cout << '\n' : cout << ' ';
 	}
-}
-
-int processed_elem_count()
-{
-	// Get processed elements per process
-	int elem_per_proc = GRID_SIZE / world_size;
-	int rest_elem = GRID_SIZE % world_size;
-	
-	if (world_rank >= world_size - rest_elem)
-	{
-		elem_per_proc += 1;
-	}
-
-	return elem_per_proc * GRID_SIZE;
 }
 
 template<typename T>
@@ -362,70 +180,70 @@ void set_cell(vector<T> &grid, const int &x, const int &y, const T &val)
 }
 
 template<typename T>
-void step(vector<T>& grid_slice, const vector<T> &missing_rows)
+void step(vector<T> &grid)
 {
-	int x, y;
-	vector<int> counts(grid_slice.size(), 0);
+	vector<int> counts(grid.size(), 0);
 
 	/* count the neighbours for each cell and store the count */
-	for (y = 0; y < elem_per_proc / GRID_SIZE; y++)
+#pragma omp parallel \
+	shared(counts) \
+	num_threads(THREAD_NUM) // Each thread will process one line
 	{
-		for (x = 0; x < GRID_SIZE; x++)
+#pragma omp parallel for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements		 
+		for (int y = 0; y < GRID_SIZE; y++)
 		{
-			counts[y * GRID_SIZE + x] = count_living_neighbours(grid_slice, missing_rows, x, y);
+			for (int x = 0; x < GRID_SIZE; x++)
+			{
+				counts[y * GRID_SIZE + x] = count_living_neighbours(grid, x, y);
+			}
 		}
-	}
+	} /* end of parallel region */
 
 	/* update cell to living or dead depending on number of neighbours */
-	for (y = 0; y < elem_per_proc / GRID_SIZE; y++)
+#pragma omp parallel \
+	shared(counts) \
+	num_threads(THREAD_NUM) // Each thread will process one line
 	{
-		for (x = 0; x < GRID_SIZE; x++)
+#pragma omp for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements
+		for (int y = 0; y < GRID_SIZE; y++)
 		{
-			update_cell(grid_slice, x, y, counts[y * GRID_SIZE + x]);
+			for (int x = 0; x < GRID_SIZE; x++)
+			{
+				update_cell(grid, x, y, counts[y * GRID_SIZE + x]);
+			}
 		}
-	}
+	} /* end of parallel region */
 }
 
 template<typename T>
-int count_living_neighbours(const vector<T>& grid_slice, const vector<T>& missing_rows, const int& x, const int& y)
+int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 {
-	int i, j;
-	int count;
-
-	count = 0;
-	for (i = y - 1; i <= y + 1; i++)
-	{
-		for (j = x - 1; j <= x + 1; j++)
-		{
-			/* make sure we don't go out of bounds */
-			if (i >= 0 && j >= 0 && i < elem_per_proc / GRID_SIZE && j < GRID_SIZE)
+	int count = 0;
+	int thread_number = 3; // Each thread will process one line
+	constexpr int chunk = 3; // Each line will have 3 elements
+	
+#pragma omp parallel \
+	shared(grid, x, y, count, chunk) \
+	num_threads(thread_number) 
+	{	
+#pragma omp for schedule(static, chunk) nowait
+		for (int i = y - 1; i <= y + 1; i++) {
+			for (int j = x - 1; j <= x + 1; j++)
 			{
-				/* if cell is alive, then add to the count */
-				count += grid_slice[i * GRID_SIZE + j];
-
-			}
-			// Count adjacent living cells from world_rank - 1 process
-			else if (world_rank != 0 && i == -1 && j >= 0 && j < GRID_SIZE)
-			{
-				count += missing_rows[j];
-			}
-			// Count adjacent living cells from world_rank + 1 process
-			else if (world_rank != world_size - 1 && i == elem_per_proc / GRID_SIZE && j >= 0 && j < GRID_SIZE)
-			{
-				if (world_rank == 0) {
-					count += missing_rows[j];
-				}
-				else
+				/* make sure we don't go out of bounds */
+				if (i >= 0 && j >= 0 && i < GRID_SIZE && j < GRID_SIZE)
 				{
-					count += missing_rows[GRID_SIZE + j];
+					/* if cell is alive, then add to the count */
+#pragma omp critical
+					count += grid[i * GRID_SIZE + j];
 				}
 			}
 		}
-	}
+	} /* end of parallel region */
 
 	/* our loop counts the cell at the center of the */
 	/* neighbourhood. Remove that from the count     */
-	if (grid_slice[y * GRID_SIZE + x] == LIVE_CELL) {
+	if (grid[y * GRID_SIZE + x] == LIVE_CELL) {
 		count--;
 	}
 
@@ -433,17 +251,17 @@ int count_living_neighbours(const vector<T>& grid_slice, const vector<T>& missin
 }
 
 template<typename T>
-void update_cell(vector<T> &grid_slice, const int &x, const int &y, const int &num_neighbours)
+void update_cell(vector<T> &grid, const int &x, const int &y, const int &num_neighbours)
 {
 	if (num_neighbours == REPRODUCE_NUM)
 	{
 		/* come to life due to reproduction */
-		grid_slice[y * GRID_SIZE + x] = LIVE_CELL;
+		grid[y * GRID_SIZE + x] = LIVE_CELL;
 	}
 	else if (num_neighbours > OVERPOPULATE_NUM || num_neighbours < ISOLATION_NUM)
 	{
 		/* die due to overpopulation/isolation */
-		grid_slice[y * GRID_SIZE + x] = DEAD_CELL;
+		grid[y * GRID_SIZE + x] = DEAD_CELL;
 	}
 }
 
@@ -508,16 +326,4 @@ void terminate_display()
 	SDL_DestroyRenderer(g_renderer);
 	SDL_DestroyWindow(g_window);
 	SDL_Quit();
-}
-
-template<typename T>
-void transform_elements(T* arr, const int& arr_rows, const T& val)
-{
-	for (int row = 0; row < arr_rows; row++)
-	{
-		for (int col = 0; col < GRID_SIZE; col++)
-		{
-			arr[row * GRID_SIZE + col] = val;
-		}
-	}
 }
