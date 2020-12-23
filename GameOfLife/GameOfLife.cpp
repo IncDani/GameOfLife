@@ -81,6 +81,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 
 	// Grid used for the game - allocated only in process 0
 	vector<int> grid;
+
+	// Grid slice will be either 1D or 2D based on the number of
+	// processes available
 	vector<int> grid_slice(elem_per_proc, 0);
 
 	// Buffers used to compute neigbor count
@@ -201,7 +204,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 			{
 				// All even ranked processes send to their next neighbor last row of elements
 				// needed for computing neighbors
-				missing_upper_row.assign(grid_slice.end() - GRID_SIZE, grid_slice.end());
+				missing_upper_row.assign(grid_slice.begin(), grid_slice.begin() + GRID_SIZE);
 				MPI_Send(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD);
 			}
 			else if (world_rank != world_size - 1)
@@ -218,10 +221,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		{
 			// All even ranked processes send to their next neighbor last row of elements
 			// needed for computing neighbors
-			missing_upper_row.assign(grid_slice.end() - GRID_SIZE, grid_slice.end());
+			missing_upper_row.assign(grid_slice.begin(), grid_slice.begin() + GRID_SIZE);
 			MPI_Send(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD);
 		}
-		else if(world_rank != world_size - 1)
+		else if(world_rank != world_size - 1) 
 		{
 			// All odd ranked processes receive from their previous neighbor last row of elements
 			// needed for computing neighbors
@@ -230,11 +233,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		}
 
 		/* advance the game if appropriate */
+		MPI_Barrier(MPI_COMM_WORLD);
 		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
 			step(grid_slice, missing_rows);
 			ticks = SDL_GetTicks();
 		}
 
+		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Gatherv(grid_slice.data(), elem_per_proc, MPI_INT
 			, grid.data(), elem_per_proc_vec.data(), displ_vec.data(), MPI_INT
 			, 0, MPI_COMM_WORLD);
@@ -396,10 +401,8 @@ int count_living_neighbours(const vector<T>& grid_slice, const vector<T>& missin
 			if (i >= 0 && j >= 0 && i < elem_per_proc / GRID_SIZE && j < GRID_SIZE)
 			{
 				/* if cell is alive, then add to the count */
-				if (grid_slice[i * GRID_SIZE + j] == LIVE_CELL)
-				{
-					count++;
-				}
+				count += grid_slice[i * GRID_SIZE + j];
+
 			}
 			// Count adjacent living cells from world_rank - 1 process
 			else if (world_rank != 0 && i == -1 && j >= 0 && j < GRID_SIZE)
