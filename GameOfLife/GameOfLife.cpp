@@ -223,10 +223,11 @@ int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 	constexpr int chunk = 3; // Each line will have 3 elements
 	
 #pragma omp parallel \
-	shared(grid, x, y, count, chunk) \
+	shared(grid, x, y, chunk) \
 	num_threads(thread_number) 
 	{	
-#pragma omp for schedule(static, chunk) nowait
+#pragma omp for schedule(static, chunk) nowait \
+	reduction(+:count)
 		for (int i = y - 1; i <= y + 1; i++) {
 			for (int j = x - 1; j <= x + 1; j++)
 			{
@@ -234,7 +235,7 @@ int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 				if (i >= 0 && j >= 0 && i < GRID_SIZE && j < GRID_SIZE)
 				{
 					/* if cell is alive, then add to the count */
-#pragma omp critical
+//#pragma omp critical
 					count += grid[i * GRID_SIZE + j];
 				}
 			}
