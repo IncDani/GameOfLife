@@ -20,8 +20,6 @@ const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
 const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
 
-const int THREAD_NUM = 10;
-
 int g_user_quit = 0;
 int g_animating = 0;
 
@@ -206,8 +204,6 @@ template<typename T>
 int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 {
 	int count = 0;
-	int thread_number = 3; // Each thread will process one line
-	constexpr int chunk = 3; // Each line will have 3 elements
 	
 	for (int i = y - 1; i <= y + 1; i++) {
 		for (int j = x - 1; j <= x + 1; j++)
