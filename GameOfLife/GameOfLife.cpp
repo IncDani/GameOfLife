@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <chrono>
 
 #include<SDL.h>
 #undef main
@@ -7,8 +8,12 @@
 SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
+/* BEGIN Experiments parameters */
+const int GRID_SIZE = 20;  /* height and width of the grid in cells */
+const int GENERATIONS = 100;
+/* END Experiments parameters */
+
 const int SCREEN_SIZE = 800;
-const int GRID_SIZE = 40;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
 
 const int LIVE_CELL = 1;
@@ -18,12 +23,14 @@ const int REPRODUCE_NUM = 3;	/* exactly this and cells reproduce           */
 const int OVERPOPULATE_NUM = 3; /* more than this and cell dies of starvation */
 const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
-const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
+const int ANIMATION_RATE = 0; /* update animation every 250 milliseconds  */
 
 int g_user_quit = 0;
 int g_animating = 0;
 
+/* BEGIN Namespaces */
 using namespace std;
+/* END Namespaces */
 
 bool initialize_display();
 
@@ -52,6 +59,7 @@ void step(vector<T> &grid);
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
+	int generation = 0;
 
 	// Grid used for the game
 	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
@@ -62,10 +70,17 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	/* keep track of elapsed time so we can render the animation at a
 	 * sensible framerate */
 	ticks = SDL_GetTicks();
+	auto start = chrono::high_resolution_clock::now();
 
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
 	{
+		if (generation == GENERATIONS)
+		{
+			break;
+		}
+		
+		generation++;
 		/* button presses, mouse movement, etc */
 		handle_events(grid);
 
@@ -78,6 +93,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 			ticks = SDL_GetTicks();
 		}
 	}
+
+	auto stop = chrono::high_resolution_clock::now();
+	auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+	cout << "Total duration for " << GENERATIONS << " generations with " << GRID_SIZE << "x"
+		<< GRID_SIZE << " grid is " << duration.count() << " milliseconds." << '\n';
 
 	 /* clean up when we're done */
 	terminate_display();
