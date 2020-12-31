@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <chrono>
 
 #include <omp.h>
 #include<SDL.h>
@@ -8,8 +9,12 @@
 SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
+/* BEGIN Experiments parameters */
+const int GRID_SIZE = 40;  /* height and width of the grid in cells */
+const int GENERATIONS = 500;
+/* END Experiments parameters */
+
 const int SCREEN_SIZE = 800;
-const int GRID_SIZE = 40;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
 
 const int LIVE_CELL = 1;
@@ -26,7 +31,9 @@ const int THREAD_NUM = 10;
 int g_user_quit = 0;
 int g_animating = 0;
 
+/* BEGIN Namespaces */
 using namespace std;
+/* END Namespaces */
 
 bool initialize_display();
 
@@ -55,6 +62,8 @@ void step(vector<T> &grid);
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
+	int generation = 0;
+	int total_duration = 0;
 
 	// Grid used for the game
 	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
@@ -69,6 +78,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
 	{
+		if (generation == GENERATIONS)
+		{
+			break;
+		}
+
+		generation++;
+
 		/* button presses, mouse movement, etc */
 		handle_events(grid);
 
@@ -77,10 +93,17 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 
 		/* advance the game if appropriate */
 		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
+			auto start = chrono::high_resolution_clock::now();
 			step(grid);
+			auto stop = chrono::high_resolution_clock::now();
+			auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+			total_duration += duration.count();
 			ticks = SDL_GetTicks();
 		}
 	}
+
+	cout << "Total duration for " << GENERATIONS << " generations with " << GRID_SIZE << "x"
+		<< GRID_SIZE << " grid is " << total_duration << " milliseconds." << '\n';
 
 	 /* clean up when we're done */
 	terminate_display();
