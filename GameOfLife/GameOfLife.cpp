@@ -17,7 +17,7 @@ const int GENERATIONS = 500;
 const int SCREEN_SIZE = 800;
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
 
-const int LIVE_CELL = 1;
+const int LIVE_CELL = 1; 
 const int DEAD_CELL = 0;
 
 const int REPRODUCE_NUM = 3;	/* exactly this and cells reproduce           */
@@ -29,7 +29,7 @@ const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
 const int THREAD_NUM = 10;
 
 int g_user_quit = 0;
-int g_animating = 0;
+int g_animating = 1;
 
 /* BEGIN Namespaces */
 using namespace std;
@@ -63,7 +63,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
 	int generation = 0;
-	int total_duration = 0;
+	time_t total_duration = 0;
 
 	// Grid used for the game
 	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
