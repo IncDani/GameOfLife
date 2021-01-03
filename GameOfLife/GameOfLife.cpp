@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 
 #include<SDL.h>
 #undef main
@@ -9,8 +10,12 @@
 SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
+/* BEGIN Experiments parameters */
+const int GRID_SIZE = 100;  /* height and width of the grid in cells */
+const int GENERATIONS = 500;
+/* END Experiments parameters */
+
 const int SCREEN_SIZE = 800;
-const int GRID_SIZE = 10;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
 
 const int LIVE_CELL = 1;
@@ -20,7 +25,7 @@ const int REPRODUCE_NUM = 3;	/* exactly this and cells reproduce           */
 const int OVERPOPULATE_NUM = 3; /* more than this and cell dies of starvation */
 const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
-const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
+const int ANIMATION_RATE = 50; /* update animation every 250 milliseconds  */
 
 int g_user_quit = 0;
 int g_animating = 0;
@@ -68,6 +73,8 @@ vector<int> elem_per_proc_vec;
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
+	time_t total_duration = 0;
+	int generation = 0;
 
 	// Initialize the MPI environment
 	MPI_Init(&argc, &argv);
@@ -105,8 +112,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	if (world_rank == 0)
 	{
 		/* try to create a window and renderer. Kill the program if we fail */
-		 if (!initialize_display())
-		 	MPI_Abort(MPI_COMM_WORLD, -1);
+		 //if (!initialize_display())
+		 //	MPI_Abort(MPI_COMM_WORLD, -1);
 
 		// Initialize grid
 		grid.resize(GRID_SIZE * GRID_SIZE, DEAD_CELL);
@@ -141,12 +148,18 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
 	{
-		if (world_rank == 0) {
-			/* button presses, mouse movement, etc */
-			handle_events(grid);
-			/* draw the game to the screen */
-			display_grid(grid);
+
+		if (generation == GENERATIONS)
+		{
+			break;
 		}
+
+		//if (world_rank == 0) {
+		//	/* button presses, mouse movement, etc */
+		//	handle_events(grid);
+		//	/* draw the game to the screen */
+		//	display_grid(grid);
+		//}
 
 		// Share data from process 0 to the others
 		MPI_Bcast(&g_user_quit, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -177,7 +190,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		}
 
 		// Stage 2 - odd send forward
-		
+
 		if (world_rank % 2 == 1)
 		{
 			if (world_rank != world_size - 1)
@@ -195,7 +208,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 			MPI_Recv(missing_lower_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			copy_n(missing_lower_row.begin(), GRID_SIZE, missing_rows.begin());
 		}
-		
+
 
 		// Stage 3 - even send backward
 		if (world_rank != 0)
@@ -224,7 +237,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 			missing_upper_row.assign(grid_slice.begin(), grid_slice.begin() + GRID_SIZE);
 			MPI_Send(missing_upper_row.data(), GRID_SIZE, MPI_INT, world_rank - 1, 0, MPI_COMM_WORLD);
 		}
-		else if(world_rank != world_size - 1) 
+		else if (world_rank != world_size - 1)
 		{
 			// All odd ranked processes receive from their previous neighbor last row of elements
 			// needed for computing neighbors
@@ -234,22 +247,31 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 
 		/* advance the game if appropriate */
 		MPI_Barrier(MPI_COMM_WORLD);
-		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
-			step(grid_slice, missing_rows);
-			ticks = SDL_GetTicks();
-		}
 
+		//if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
+			auto start = chrono::high_resolution_clock::now();
+			step(grid_slice, missing_rows);
+			auto stop = chrono::high_resolution_clock::now();
+			auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+			total_duration += duration.count();
+			//ticks = SDL_GetTicks();
+			generation++;
+		//}
+	
 		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Gatherv(grid_slice.data(), elem_per_proc, MPI_INT
 			, grid.data(), elem_per_proc_vec.data(), displ_vec.data(), MPI_INT
 			, 0, MPI_COMM_WORLD);
 	}
 
+	cout << "Total duration for " << generation << " generations with " << GRID_SIZE << "x"
+		<< GRID_SIZE << " grid is " << total_duration << " milliseconds." << '\n';
+
 	 /* clean up when we're done */
-	if (world_rank == 0)
-	{
-		terminate_display();
-	}
+	//if (world_rank == 0)
+	//{
+	//	terminate_display();
+	//}
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	MPI_Finalize();
