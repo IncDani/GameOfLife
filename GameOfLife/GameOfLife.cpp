@@ -10,7 +10,7 @@ SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
 /* BEGIN Experiments parameters */
-const int GRID_SIZE = 40;  /* height and width of the grid in cells */
+const int GRID_SIZE = 80;  /* height and width of the grid in cells */
 const int GENERATIONS = 500;
 /* END Experiments parameters */
 
@@ -26,7 +26,7 @@ const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
 const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
 
-const int THREAD_NUM = 5;
+const int THREAD_NUM = 10;
 
 int g_user_quit = 0;
 int g_animating = 1;
@@ -209,34 +209,26 @@ void step(vector<T> &grid)
 	vector<int> counts(grid.size(), 0);
 
 	/* count the neighbours for each cell and store the count */
-#pragma omp parallel \
-	shared(counts) \
-	num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp parallel shared(counts)	num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements		 
+	for (int y = 0; y < GRID_SIZE; y++)
 	{
-#pragma omp parallel for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements		 
-		for (int y = 0; y < GRID_SIZE; y++)
+		for (int x = 0; x < GRID_SIZE; x++)
 		{
-			for (int x = 0; x < GRID_SIZE; x++)
-			{
-				counts[y * GRID_SIZE + x] = count_living_neighbours(grid, x, y);
-			}
+			counts[y * GRID_SIZE + x] = count_living_neighbours(grid, x, y);
 		}
-	} /* end of parallel region */
+	}
 
 	/* update cell to living or dead depending on number of neighbours */
-#pragma omp parallel \
-	shared(counts) \
-	num_threads(THREAD_NUM) // Each thread will process one line
-	{
+#pragma omp parallel shared(counts)	num_threads(THREAD_NUM) // Each thread will process one line
 #pragma omp for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements
-		for (int y = 0; y < GRID_SIZE; y++)
+	for (int y = 0; y < GRID_SIZE; y++)
+	{
+		for (int x = 0; x < GRID_SIZE; x++)
 		{
-			for (int x = 0; x < GRID_SIZE; x++)
-			{
-				update_cell(grid, x, y, counts[y * GRID_SIZE + x]);
-			}
+			update_cell(grid, x, y, counts[y * GRID_SIZE + x]);
 		}
-	} /* end of parallel region */
+	}
 }
 
 template<typename T>
@@ -246,25 +238,17 @@ int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 	int thread_number = 3; // Each thread will process one line
 	constexpr int chunk = 3; // Each line will have 3 elements
 	
-#pragma omp parallel \
-	shared(grid, x, y, chunk) \
-	num_threads(thread_number) 
-	{	
-#pragma omp for schedule(static, chunk) nowait \
-	reduction(+:count)
-		for (int i = y - 1; i <= y + 1; i++) {
-			for (int j = x - 1; j <= x + 1; j++)
+	for (int i = y - 1; i <= y + 1; i++) {
+		for (int j = x - 1; j <= x + 1; j++)
+		{
+			/* make sure we don't go out of bounds */
+			if (i >= 0 && j >= 0 && i < GRID_SIZE && j < GRID_SIZE)
 			{
-				/* make sure we don't go out of bounds */
-				if (i >= 0 && j >= 0 && i < GRID_SIZE && j < GRID_SIZE)
-				{
-					/* if cell is alive, then add to the count */
-//#pragma omp critical
-					count += grid[i * GRID_SIZE + j];
-				}
+				/* if cell is alive, then add to the count */
+				count += grid[i * GRID_SIZE + j];
 			}
 		}
-	} /* end of parallel region */
+	}
 
 	/* our loop counts the cell at the center of the */
 	/* neighbourhood. Remove that from the count     */
