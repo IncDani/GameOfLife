@@ -8,6 +8,12 @@
 SDL_Renderer* g_renderer = NULL;
 SDL_Window* g_window = NULL;
 
+/* BEGIN Experiments parameters */
+const int GRID_SIZE = 40;  /* height and width of the grid in cells */
+const int GENERATIONS = 500;
+const int THREAD_NUM = 10;
+/* END Experiments parameters */
+
 const int SCREEN_SIZE = 800;
 const int GRID_SIZE = 40;  /* height and width of the grid in cells     */
 const int CELL_SIZE = SCREEN_SIZE / GRID_SIZE;
@@ -19,9 +25,7 @@ const int REPRODUCE_NUM = 3;	/* exactly this and cells reproduce           */
 const int OVERPOPULATE_NUM = 3; /* more than this and cell dies of starvation */
 const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 
-const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
-
-const int THREAD_NUM = 10;
+const int ANIMATION_RATE = 5; /* update animation every 250 milliseconds  */
 
 int g_user_quit = 0;
 int g_animating = 0;
@@ -55,6 +59,8 @@ void step(vector<T> &grid);
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 {
 	Uint32 ticks;
+	int generation = 0;
+	time_t total_duration = 0;
 
 	// Grid used for the game
 	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
@@ -69,6 +75,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
 	{
+		if (generation == GENERATIONS)
+		{
+			break;
+		}
+
 		/* button presses, mouse movement, etc */
 		handle_events(grid);
 
@@ -77,8 +88,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 
 		/* advance the game if appropriate */
 		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
+			auto start = chrono::high_resolution_clock::now();
 			step(grid);
+			auto stop = chrono::high_resolution_clock::now();
+			auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
+			total_duration += duration.count();
 			ticks = SDL_GetTicks();
+			generation++;
 		}
 	}
 
@@ -182,45 +198,36 @@ void set_cell(vector<T> &grid, const int &x, const int &y, const T &val)
 template<typename T>
 void step(vector<T> &grid)
 {
+	int x, y;
 	vector<int> counts(grid.size(), 0);
 
 	/* count the neighbours for each cell and store the count */
-#pragma omp parallel \
-	shared(counts) \
-	num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp parallel shared(counts) num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp for private(x) schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements		 
+	for (y = 0; y < GRID_SIZE; y++)
 	{
-#pragma omp parallel for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements		 
-		for (int y = 0; y < GRID_SIZE; y++)
+		for (x = 0; x < GRID_SIZE; x++)
 		{
-			for (int x = 0; x < GRID_SIZE; x++)
-			{
-				counts[y * GRID_SIZE + x] = count_living_neighbours(grid, x, y);
-			}
+			counts[y * GRID_SIZE + x] = count_living_neighbours(grid, x, y);
 		}
-	} /* end of parallel region */
+	}
 
 	/* update cell to living or dead depending on number of neighbours */
-#pragma omp parallel \
-	shared(counts) \
-	num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp parallel shared(counts) num_threads(THREAD_NUM) // Each thread will process one line
+#pragma omp for private(x) schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements
+	for (y = 0; y < GRID_SIZE; y++)
 	{
-#pragma omp for schedule(dynamic, GRID_SIZE) // Each line will have GRID_SIZE elements
-		for (int y = 0; y < GRID_SIZE; y++)
+		for (x = 0; x < GRID_SIZE; x++)
 		{
-			for (int x = 0; x < GRID_SIZE; x++)
-			{
-				update_cell(grid, x, y, counts[y * GRID_SIZE + x]);
-			}
+			update_cell(grid, x, y, counts[y * GRID_SIZE + x]);
 		}
-	} /* end of parallel region */
+	}
 }
 
 template<typename T>
 int count_living_neighbours(const vector<T> &grid, const int& x, const int& y)
 {
 	int count = 0;
-	int thread_number = 3; // Each thread will process one line
-	constexpr int chunk = 3; // Each line will have 3 elements
 	
 #pragma omp parallel \
 	shared(grid, x, y, count, chunk) \
