@@ -26,7 +26,7 @@ const int ISOLATION_NUM = 2;	/* less than this and cell dies of loneliness */
 const int ANIMATION_RATE = 250; /* update animation every 250 milliseconds  */
 
 int g_user_quit = 0;
-int g_animating = 1;
+int g_animating = 0;
 
 /* BEGIN Namespaces */
 using namespace std;
@@ -66,11 +66,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	vector<int> grid(GRID_SIZE * GRID_SIZE, DEAD_CELL);
 	
 	/* try to create a window and renderer. Kill the program if we fail */
-	//if (!initialize_display()) return 1;
+	if (!initialize_display()) return 1;
 
 	/* keep track of elapsed time so we can render the animation at a
 	 * sensible framerate */
-	//ticks = SDL_GetTicks();
+	ticks = SDL_GetTicks();
 
 	/* step the simulation forward until the user decides to quit */
 	while (g_user_quit == 0)
@@ -79,23 +79,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		{
 			break;
 		}
-		
-		generation++;
+
 		/* button presses, mouse movement, etc */
-		//handle_events(grid);
+		handle_events(grid);
 
 		/* draw the game to the screen */
-		//display_grid(grid);
+		display_grid(grid);
 
 		/* advance the game if appropriate */
-		//if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
-		if (g_animating == 1) {
+		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
 			auto start = chrono::high_resolution_clock::now();
 			step(grid);
 			auto stop = chrono::high_resolution_clock::now();
 			auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
 			total_duration += duration.count();
-			//ticks = SDL_GetTicks();
+			ticks = SDL_GetTicks();
+			generation++;
 		}
 	}
 
@@ -103,7 +102,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		<< GRID_SIZE << " grid is " << total_duration << " milliseconds." << '\n';
 
 	 /* clean up when we're done */
-	//terminate_display();
+	terminate_display();
 
 	return 0;
 }
