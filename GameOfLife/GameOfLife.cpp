@@ -112,8 +112,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 	if (world_rank == 0)
 	{
 		/* try to create a window and renderer. Kill the program if we fail */
-		 //if (!initialize_display())
-		 //	MPI_Abort(MPI_COMM_WORLD, -1);
+		 if (!initialize_display())
+		 	MPI_Abort(MPI_COMM_WORLD, -1);
 
 		// Initialize grid
 		grid.resize(GRID_SIZE * GRID_SIZE, DEAD_CELL);
@@ -154,12 +154,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 			break;
 		}
 
-		//if (world_rank == 0) {
-		//	/* button presses, mouse movement, etc */
-		//	handle_events(grid);
-		//	/* draw the game to the screen */
-		//	display_grid(grid);
-		//}
+		if (world_rank == 0) {
+			/* button presses, mouse movement, etc */
+			handle_events(grid);
+			/* draw the game to the screen */
+			display_grid(grid);
+		}
 
 		// Share data from process 0 to the others
 		MPI_Bcast(&g_user_quit, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -248,15 +248,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		/* advance the game if appropriate */
 		MPI_Barrier(MPI_COMM_WORLD);
 
-		//if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
+		if (g_animating == 1 && (SDL_GetTicks() - ticks) > ANIMATION_RATE) {
 			auto start = chrono::high_resolution_clock::now();
 			step(grid_slice, missing_rows);
 			auto stop = chrono::high_resolution_clock::now();
 			auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
 			total_duration += duration.count();
-			//ticks = SDL_GetTicks();
+			ticks = SDL_GetTicks();
 			generation++;
-		//}
+		}
 	
 		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Gatherv(grid_slice.data(), elem_per_proc, MPI_INT
@@ -268,10 +268,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv)
 		<< GRID_SIZE << " grid is " << total_duration << " milliseconds." << '\n';
 
 	 /* clean up when we're done */
-	//if (world_rank == 0)
-	//{
-	//	terminate_display();
-	//}
+	if (world_rank == 0)
+	{
+		terminate_display();
+	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
 	MPI_Finalize();
